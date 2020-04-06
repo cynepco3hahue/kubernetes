@@ -172,9 +172,11 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 
 // AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
+	klog.Info("[memorymanager] Add pod %q container %q", pod.UID, container.Name)
 	// Get NUMA node affinity of blocks assigned to the container during Allocate()
 	var nodes []string
 	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
+		klog.Info("[memorymanager] Pod %q container %q block NUMA affinity %d", pod.UID, container.Name, block.NUMAAffinity)
 		nodes = append(nodes, strconv.Itoa(block.NUMAAffinity))
 	}
 
@@ -184,6 +186,7 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 	}
 
 	affinity := strings.Join(nodes, ",")
+	klog.Info("[memorymanager] Set container %q cpuset.mems to %q", containerID, affinity)
 	err := m.containerRuntime.UpdateContainerResources(containerID, &runtimeapi.LinuxContainerResources{CpusetMems: affinity})
 	if err != nil {
 		klog.Errorf("[memorymanager] AddContainer error: error updating cpuset.mems for container (pod: %s, container: %s, container id: %s, err: %v)", pod.Name, container.Name, containerID, err)
