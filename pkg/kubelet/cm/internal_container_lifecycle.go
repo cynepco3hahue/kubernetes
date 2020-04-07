@@ -17,8 +17,7 @@ limitations under the License.
 package cm
 
 import (
-	"k8s.io/api/core/v1"
-
+	v1 "k8s.io/api/core/v1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
@@ -63,8 +62,17 @@ func (i *internalContainerLifecycleImpl) PreStartContainer(pod *v1.Pod, containe
 
 func (i *internalContainerLifecycleImpl) PreStopContainer(containerID string) error {
 	if i.cpuManager != nil {
-		return i.cpuManager.RemoveContainer(containerID)
+		if err := i.cpuManager.RemoveContainer(containerID); err != nil {
+			return err
+		}
 	}
+
+	if i.memoryManager != nil {
+		if err := i.memoryManager.RemoveContainer(containerID); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

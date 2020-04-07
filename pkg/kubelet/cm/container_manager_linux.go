@@ -605,6 +605,7 @@ func (cm *containerManagerImpl) Start(node *v1.Node,
 
 	// Initialize memory manager
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.MemoryManager) {
+		// TODO: we should to avoud building the container map twice
 		containerMap, err := buildContainerMapFromRuntime(runtimeService)
 		if err != nil {
 			return fmt.Errorf("failed to build map of initial containers from runtime: %v", err)
