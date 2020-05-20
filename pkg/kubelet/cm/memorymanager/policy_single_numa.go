@@ -40,12 +40,12 @@ type systemReservedMemory map[int]map[v1.ResourceName]uint64
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
 type singleNUMAPolicy struct {
 	// TODO: define new kubelet flag and pass it to the ContainerManager -> MemoryManager -> singleNUMAPolicy
-	// multipleNUMAGroups defines groups of NUMA nodes that will be set to preferred under the topology hint generation
+	// multiNUMAGroups defines groups of NUMA nodes that will be set to preferred under the topology hint generation
 	// for example on the machine with four NUMA nodes and with this parameter equals to [[0,2]], only hints
 	// [0010, 1000, 0101] will be preferred
 	// if this parameter is empty, the default behavior will be used to set preferred hints, it means that only hint
 	// with a minimal amount of nodes that should satisfy the request will be set to preferred
-	multipleNUMAGroups [][]int
+	multiNUMAGroups [][]int
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
@@ -326,6 +326,9 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 	}
 	sort.Ints(numaNodes)
 
+	// Initialize minAffinitySize to include all NUMA Nodes.
+	minAffinitySize := len(numaNodes)
+
 	hints := map[string][]topologymanager.TopologyHint{}
 	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
 		maskBits := mask.GetBits()
@@ -337,11 +340,12 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 		}
 
 		totalFreeSize := map[v1.ResourceName]uint64{}
+		totalAllocatableSize := map[v1.ResourceName]uint64{}
 		// calculate total free memory for the node mask
 		for _, nodeId := range maskBits {
 			// the node already used for the memory allocation
 			if !singleNUMAHint && machineState[nodeId].NumberOfAssignments > 0 {
-				// the node used for the single NUMA memory allocation, it can be used for the multiple NUMA node allocation
+				// the node used for the single NUMA memory allocation, it can be used for the multi NUMA node allocation
 				if len(machineState[nodeId].Nodes) == 1 {
 					return
 				}
@@ -357,17 +361,33 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 					totalFreeSize[resourceName] = 0
 				}
 				totalFreeSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Free
+
+				if _, ok := totalAllocatableSize[resourceName]; !ok {
+					totalAllocatableSize[resourceName] = 0
+				}
+				totalAllocatableSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Allocatable
 			}
 		}
 
-		// verify that for all memory types the node mask has enough resources
+		// verify that for all memory types the node mask has enough allocatable resources
+		for resourceName, requestedSize := range requestedResources {
+			if totalAllocatableSize[resourceName] < requestedSize {
+				return
+			}
+		}
+
+		// set the minimum amount of NUMA nodes that can satisfy the container resources requests
+		if mask.Count() < minAffinitySize {
+			minAffinitySize = mask.Count()
+		}
+
+		// verify that for all memory types the node mask has enough free resources
 		for resourceName, requestedSize := range requestedResources {
 			if totalFreeSize[resourceName] < requestedSize {
 				return
 			}
 		}
 
-		preferred := p.isHintPreferred(maskBits)
 		// add the node mask as topology hint for all memory types
 		for resourceName := range requestedResources {
 			if _, ok := hints[string(resourceName)]; !ok {
@@ -375,26 +395,42 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 			}
 			hints[string(resourceName)] = append(hints[string(resourceName)], topologymanager.TopologyHint{
 				NUMANodeAffinity: mask,
-				Preferred:        preferred,
+				Preferred:        false,
 			})
 		}
 	})
 
+	// update hints preferred according to multiNUMAGroups, in case when it wasn't provided, the default
+	// behaviour to prefer the minimal amount of NUMA nodes will be used
+	for resourceName := range requestedResources {
+		for i, hint := range hints[string(resourceName)] {
+			hints[string(resourceName)][i].Preferred = p.isHintPreferred(hint.NUMANodeAffinity.GetBits(), minAffinitySize)
+		}
+	}
+
 	return hints
 }
 
-func (p *singleNUMAPolicy) isHintPreferred(maskBits []int) bool {
+func (p *singleNUMAPolicy) isHintPreferred(maskBits []int, minAffinitySize int) bool {
+	if len(p.multiNUMAGroups) == 0 {
+		if len(maskBits) == minAffinitySize {
+			return true
+		}
+
+		return false
+	}
 	// check if the mask is for the single NUMA node hint
 	if len(maskBits) == 1 {
-		// the node should be used only for multiple NUMA memory allocation
-		return !p.isMultipleNUMANode(maskBits[0])
+		// the node should be used only for multi NUMA memory allocation
+		return !p.isMultiNUMANode(maskBits[0])
 	}
 
-	return p.isMultipleNUMAGroup(maskBits)
+	return p.isMultiNUMAGroup(maskBits)
 }
 
-func (p *singleNUMAPolicy) isMultipleNUMAGroup(maskBits []int) bool {
-	for _, group := range p.multipleNUMAGroups {
+// isMultiNUMAGroup verifies if the set of NUMA nodes equals to some of the multi NUMA node groups
+func (p *singleNUMAPolicy) isMultiNUMAGroup(maskBits []int) bool {
+	for _, group := range p.multiNUMAGroups {
 		if areGroupsEqual(group, maskBits) {
 			return true
 		}
@@ -418,8 +454,9 @@ func areGroupsEqual(group1, group2 []int) bool {
 	return true
 }
 
-func (p *singleNUMAPolicy) isMultipleNUMANode(nodeId int) bool {
-	for _, group := range p.multipleNUMAGroups {
+// isMultiNUMANode verifies if the node is part of the multi NUMA node group
+func (p *singleNUMAPolicy) isMultiNUMANode(nodeId int) bool {
+	for _, group := range p.multiNUMAGroups {
 		for _, groupNode := range group {
 			if nodeId == groupNode {
 				return true
