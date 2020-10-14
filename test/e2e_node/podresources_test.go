@@ -19,6 +19,7 @@ package e2enode
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeletpodresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/podresources"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/pkg/kubelet/util"
 
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -260,6 +262,31 @@ func podresourcesListTests(f *framework.Framework, cli kubeletpodresourcesv1.Pod
 	tpd.deletePodsForTest(f)
 }
 
+func podresourcesGetAllocatableResourcesTests(f *framework.Framework, cli kubeletpodresourcesv1.PodResourcesListerClient, sd *sriovData) {
+	ginkgo.By("checking the devices known to the kubelet")
+	resp, err := cli.GetAllocatableResources(context.TODO(), &kubeletpodresourcesv1.AllocatableResourcesRequest{})
+	framework.ExpectNoError(err)
+	devs := resp.GetDevices()
+	cpuIDs := resp.GetCpuIds()
+
+	onlineCPUIds, err := getOnlineCPUs()
+	framework.ExpectNoError(err)
+	framework.ExpectEqual(cpuIDs, onlineCPUIds)
+
+	if sd == nil { // no devices in the environment, so expect no devices
+		ginkgo.By("expecting no devices reported")
+		framework.ExpectEqual(len(devs), 0, fmt.Sprintf("got unexpected devices %#v", devs))
+		return
+	}
+
+	ginkgo.By(fmt.Sprintf("expecting some %q devices reported", sd.resourceName))
+	gomega.Expect(len(devs)).To(gomega.BeNumerically(">", 0))
+	for _, dev := range devs {
+		framework.ExpectEqual(dev.ResourceName, sd.resourceName)
+		gomega.Expect(len(dev.DeviceIds)).To(gomega.BeNumerically(">", 0))
+	}
+}
+
 // Serial because the test updates kubelet configuration.
 var _ = SIGDescribe("POD Resources [Serial] [Feature:PODResources][NodeFeature:PODResources]", func() {
 	f := framework.NewDefaultFramework("podresources-test")
@@ -279,9 +306,62 @@ var _ = SIGDescribe("POD Resources [Serial] [Feature:PODResources][NodeFeature:P
 			framework.ExpectNoError(err)
 
 			cli, conn, err := podresources.GetV1Client(endpoint, defaultPodResourcesTimeout, defaultPodResourcesMaxSize)
+			framework.ExpectNoError(err)
 			defer conn.Close()
 
 			podresourcesListTests(f, cli, sd)
 		})
+
+		ginkgo.It("should return the expected device count", func() {
+			// this is a very rough check. We just want to rule out system that does NOT have any SRIOV device.
+			if sriovdevCount, err := countSRIOVDevices(); err != nil || sriovdevCount == 0 {
+				e2eskipper.Skipf("this test is meant to run on a system with at least one configured VF from SRIOV device")
+			}
+
+			configMap := getSRIOVDevicePluginConfigMap(framework.TestContext.SriovdpConfigMapFile)
+			sd := setupSRIOVConfigOrFail(f, configMap)
+			defer teardownSRIOVConfigOrFail(f, sd)
+
+			endpoint, err := util.LocalEndpoint(defaultPodResourcesPath, podresources.Socket)
+			framework.ExpectNoError(err)
+			cli, conn, err := podresources.GetV1Client(endpoint, defaultPodResourcesTimeout, defaultPodResourcesMaxSize)
+			framework.ExpectNoError(err)
+			defer conn.Close()
+
+			podresourcesGetAllocatableResourcesTests(f, cli, sd)
+		})
+	})
+
+	ginkgo.Context("Without SRIOV devices in the system", func() {
+		ginkgo.It("should return empty devices", func() {
+			if sriovdevCount, err := countSRIOVDevices(); err != nil || sriovdevCount > 0 {
+				e2eskipper.Skipf("this test is meant to run on a system without any configured VF from SRIOV device")
+			}
+
+			endpoint, err := util.LocalEndpoint(defaultPodResourcesPath, podresources.Socket)
+			framework.ExpectNoError(err)
+			cli, conn, err := podresources.GetV1Client(endpoint, defaultPodResourcesTimeout, defaultPodResourcesMaxSize)
+			framework.ExpectNoError(err)
+			defer conn.Close()
+
+			podresourcesGetAllocatableResourcesTests(f, cli, nil)
+		})
 	})
 })
+
+func getOnlineCPUs() ([]int64, error) {
+	onlineCPUList, err := ioutil.ReadFile("/sys/devices/system/cpu/online")
+	if err != nil {
+		return nil, err
+	}
+	cpus, err := cpuset.Parse(strings.TrimSpace(string(onlineCPUList)))
+	if err != nil {
+		return nil, err
+	}
+	cpuSlice := cpus.ToSlice()
+	cpuIDs := make([]int64, len(cpuSlice))
+	for idx, cpuID := range cpuSlice {
+		cpuIDs[idx] = int64(cpuID)
+	}
+	return cpuIDs, nil
+}
