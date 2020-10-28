@@ -23,6 +23,7 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 )
 
@@ -135,6 +136,8 @@ func TestListPodResourcesV1(t *testing.T) {
 			m.On("GetDevices", string(podUID), containerName).Return(tc.devices)
 			m.On("GetCPUs", string(podUID), containerName).Return(tc.cpus)
 			m.On("UpdateAllocatedDevices").Return()
+			m.On("GetAllCPUs").Return([]int64{})
+			m.On("GetAllDevices").Return(map[string]map[string]pluginapi.Device{})
 			server := NewV1PodResourcesServer(m, m, m)
 			resp, err := server.List(context.TODO(), &podresourcesapi.ListPodResourcesRequest{})
 			if err != nil {
@@ -142,6 +145,139 @@ func TestListPodResourcesV1(t *testing.T) {
 			}
 			if tc.expectedResponse.String() != resp.String() {
 				t.Errorf("want resp = %s, got %s", tc.expectedResponse.String(), resp.String())
+			}
+		})
+	}
+}
+
+func TestAllocatableResources(t *testing.T) {
+	allDevs := map[string]map[string]pluginapi.Device{
+		"resource": {
+			"dev0": {
+				ID:     "GPU-fef8089b-4820-abfc-e83e-94318197576e",
+				Health: "Healthy",
+				Topology: &pluginapi.TopologyInfo{
+					Nodes: []*pluginapi.NUMANode{
+						{
+							ID: 0,
+						},
+					},
+				},
+			},
+			"dev1": {
+				ID:     "VF-8536e1e8-9dc6-4645-9aea-882db92e31e7",
+				Health: "Healthy",
+				Topology: &pluginapi.TopologyInfo{
+					Nodes: []*pluginapi.NUMANode{
+						{
+							ID: 1,
+						},
+					},
+				},
+			},
+		},
+	}
+	allCPUs := []int64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+	for _, tc := range []struct {
+		desc                                 string
+		allCPUs                              []int64
+		allDevices                           map[string]map[string]pluginapi.Device
+		expectedAllocatableResourcesResponse *podresourcesapi.AllocatableResourcesResponse
+	}{
+		{
+			desc:                                 "no devices, no CPUs",
+			allCPUs:                              []int64{},
+			allDevices:                           map[string]map[string]pluginapi.Device{},
+			expectedAllocatableResourcesResponse: &podresourcesapi.AllocatableResourcesResponse{},
+		},
+		{
+			desc:       "no devices, all CPUs",
+			allCPUs:    allCPUs,
+			allDevices: map[string]map[string]pluginapi.Device{},
+			expectedAllocatableResourcesResponse: &podresourcesapi.AllocatableResourcesResponse{
+				CpuIds: allCPUs,
+			},
+		},
+		{
+			desc:       "with devices, all CPUs",
+			allCPUs:    allCPUs,
+			allDevices: allDevs,
+			expectedAllocatableResourcesResponse: &podresourcesapi.AllocatableResourcesResponse{
+				CpuIds: allCPUs,
+				Devices: []*podresourcesapi.ContainerDevices{
+					{
+						ResourceName: "resource",
+						DeviceIds:    []string{"dev0"},
+						Topology: &podresourcesapi.TopologyInfo{
+							Nodes: []*podresourcesapi.NUMANode{
+								{
+									ID: 0,
+								},
+							},
+						},
+					},
+					{
+						ResourceName: "resource",
+						DeviceIds:    []string{"dev1"},
+						Topology: &podresourcesapi.TopologyInfo{
+							Nodes: []*podresourcesapi.NUMANode{
+								{
+									ID: 1,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			desc:       "with devices, no CPUs",
+			allCPUs:    []int64{},
+			allDevices: allDevs,
+			expectedAllocatableResourcesResponse: &podresourcesapi.AllocatableResourcesResponse{
+				Devices: []*podresourcesapi.ContainerDevices{
+					{
+						ResourceName: "resource",
+						DeviceIds:    []string{"dev0"},
+						Topology: &podresourcesapi.TopologyInfo{
+							Nodes: []*podresourcesapi.NUMANode{
+								{
+									ID: 0,
+								},
+							},
+						},
+					},
+					{
+						ResourceName: "resource",
+						DeviceIds:    []string{"dev1"},
+						Topology: &podresourcesapi.TopologyInfo{
+							Nodes: []*podresourcesapi.NUMANode{
+								{
+									ID: 1,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			m := new(mockProvider)
+			m.On("GetDevices", "", "").Return([]*podresourcesapi.ContainerDevices{})
+			m.On("GetCPUs", "", "").Return([]uint32{})
+			m.On("UpdateAllocatedDevices").Return()
+			m.On("GetAllDevices").Return(tc.allDevices)
+			m.On("GetAllCPUs").Return(tc.allCPUs)
+			server := NewV1PodResourcesServer(m, m, m)
+
+			resp, err := server.GetAllocatableResources(context.TODO(), &podresourcesapi.AllocatableResourcesRequest{})
+			if err != nil {
+				t.Errorf("want err = %v, got %q", nil, err)
+			}
+			if tc.expectedAllocatableResourcesResponse.String() != resp.String() {
+				t.Errorf("want resp = %s, got %s", tc.expectedAllocatableResourcesResponse.String(), resp.String())
 			}
 		})
 	}

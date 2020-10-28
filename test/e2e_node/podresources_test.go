@@ -25,7 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubeletpodresourcesv1alpha1 "k8s.io/kubelet/pkg/apis/podresources/v1alpha1"
+	kubeletpodresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/podresources"
 	"k8s.io/kubernetes/pkg/kubelet/util"
 
@@ -63,7 +63,7 @@ func makePodResourcesTestPod(podName, cntName, devName, devCount string) *v1.Pod
 	}
 }
 
-func countPodResources(podIdx int, pr *kubeletpodresourcesv1alpha1.PodResources) int {
+func countPodResources(podIdx int, pr *kubeletpodresourcesv1.PodResources) int {
 	ns := pr.GetNamespace()
 	devCount := 0
 	for cntIdx, cnt := range pr.GetContainers() {
@@ -79,12 +79,12 @@ func countPodResources(podIdx int, pr *kubeletpodresourcesv1alpha1.PodResources)
 	return devCount
 }
 
-func getPodResources(cli kubeletpodresourcesv1alpha1.PodResourcesListerClient) ([]*kubeletpodresourcesv1alpha1.PodResources, []*kubeletpodresourcesv1alpha1.PodResources) {
-	resp, err := cli.List(context.TODO(), &kubeletpodresourcesv1alpha1.ListPodResourcesRequest{})
+func getPodResources(cli kubeletpodresourcesv1.PodResourcesListerClient) ([]*kubeletpodresourcesv1.PodResources, []*kubeletpodresourcesv1.PodResources) {
+	resp, err := cli.List(context.TODO(), &kubeletpodresourcesv1.ListPodResourcesRequest{})
 	framework.ExpectNoError(err)
 
-	res := []*kubeletpodresourcesv1alpha1.PodResources{}
-	noRes := []*kubeletpodresourcesv1alpha1.PodResources{}
+	res := []*kubeletpodresourcesv1.PodResources{}
+	noRes := []*kubeletpodresourcesv1.PodResources{}
 	for idx, podResource := range resp.GetPodResources() {
 		if countPodResources(idx, podResource) > 0 {
 			res = append(res, podResource)
@@ -136,7 +136,7 @@ func (tpd *testPodData) deletePod(f *framework.Framework, podName string) {
 	delete(tpd.PodMap, podName)
 }
 
-func expectPodResources(cli kubeletpodresourcesv1alpha1.PodResourcesListerClient, expectedPodsWithResources, expectedPodsWithoutResources int) {
+func expectPodResources(cli kubeletpodresourcesv1.PodResourcesListerClient, expectedPodsWithResources, expectedPodsWithoutResources int) {
 	gomega.EventuallyWithOffset(1, func() error {
 		podResources, noResources := getPodResources(cli)
 		if len(podResources) != expectedPodsWithResources {
@@ -149,9 +149,9 @@ func expectPodResources(cli kubeletpodresourcesv1alpha1.PodResourcesListerClient
 	}, time.Minute, 10*time.Second).Should(gomega.BeNil())
 }
 
-func podresourcesListTests(f *framework.Framework, cli kubeletpodresourcesv1alpha1.PodResourcesListerClient, sd *sriovData) {
-	var podResources []*kubeletpodresourcesv1alpha1.PodResources
-	var noResources []*kubeletpodresourcesv1alpha1.PodResources
+func podresourcesListTests(f *framework.Framework, cli kubeletpodresourcesv1.PodResourcesListerClient, sd *sriovData) {
+	var podResources []*kubeletpodresourcesv1.PodResources
+	var noResources []*kubeletpodresourcesv1.PodResources
 	var tpd *testPodData
 
 	ginkgo.By("checking the output when no pods are present")
@@ -278,7 +278,7 @@ var _ = SIGDescribe("POD Resources [Serial] [Feature:PODResources][NodeFeature:P
 			endpoint, err := util.LocalEndpoint(defaultPodResourcesPath, podresources.Socket)
 			framework.ExpectNoError(err)
 
-			cli, conn, err := podresources.GetClient(endpoint, defaultPodResourcesTimeout, defaultPodResourcesMaxSize)
+			cli, conn, err := podresources.GetV1Client(endpoint, defaultPodResourcesTimeout, defaultPodResourcesMaxSize)
 			defer conn.Close()
 
 			podresourcesListTests(f, cli, sd)

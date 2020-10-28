@@ -25,6 +25,7 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	podresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubelet/pkg/apis/podresources/v1alpha1"
 )
@@ -50,6 +51,16 @@ func (m *mockProvider) GetCPUs(podUID, containerName string) []int64 {
 
 func (m *mockProvider) UpdateAllocatedDevices() {
 	m.Called()
+}
+
+func (m *mockProvider) GetAllDevices() map[string]map[string]pluginapi.Device {
+	args := m.Called()
+	return args.Get(0).(map[string]map[string]pluginapi.Device)
+}
+
+func (m *mockProvider) GetAllCPUs() []int64 {
+	args := m.Called()
+	return args.Get(0).([]int64)
 }
 
 func TestListPodResourcesV1alpha1(t *testing.T) {

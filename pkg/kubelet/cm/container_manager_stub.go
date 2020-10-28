@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	internalapi "k8s.io/cri-api/pkg/apis"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
@@ -126,6 +127,14 @@ func (cm *containerManagerStub) UpdateAllocatedDevices() {
 }
 
 func (cm *containerManagerStub) GetCPUs(_, _ string) []int64 {
+	return nil
+}
+
+func (cm *containerManagerStub) GetAllDevices() map[string]map[string]pluginapi.Device {
+	return nil
+}
+
+func (cm *containerManagerStub) GetAllCPUs() []int64 {
 	return nil
 }
 

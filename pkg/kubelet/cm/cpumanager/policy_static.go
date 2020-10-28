@@ -187,8 +187,8 @@ func (p *staticPolicy) validateState(s state.State) error {
 	return nil
 }
 
-// assignableCPUs returns the set of unassigned CPUs minus the reserved set.
-func (p *staticPolicy) assignableCPUs(s state.State) cpuset.CPUSet {
+// GetAssignableCPUs returns the set of unassigned CPUs minus the reserved set.
+func (p *staticPolicy) GetAssignableCPUs(s state.State) cpuset.CPUSet {
 	return s.GetDefaultCPUSet().Difference(p.reserved)
 }
 
@@ -258,7 +258,7 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
 	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %v)", numCPUs, numaAffinity)
 
-	assignableCPUs := p.assignableCPUs(s).Union(reusableCPUs)
+	assignableCPUs := p.GetAssignableCPUs(s).Union(reusableCPUs)
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()
@@ -367,11 +367,9 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		}
 	}
 
-	// Get a list of available CPUs.
-	available := p.assignableCPUs(s)
-
 	// Get a list of reusable CPUs (e.g. CPUs reused from initContainers).
 	// It should be an empty CPUSet for a newly created pod.
+	available := p.GetAssignableCPUs(s)
 	reusable := p.cpusToReuse[string(pod.UID)]
 
 	// Generate hints.
@@ -423,7 +421,7 @@ func (p *staticPolicy) GetPodTopologyHints(s state.State, pod *v1.Pod) map[strin
 	}
 
 	// Get a list of available CPUs.
-	available := p.assignableCPUs(s)
+	available := p.GetAssignableCPUs(s)
 
 	// Get a list of reusable CPUs (e.g. CPUs reused from initContainers).
 	// It should be an empty CPUSet for a newly created pod.

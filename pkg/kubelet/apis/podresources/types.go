@@ -18,6 +18,7 @@ package podresources
 
 import (
 	"k8s.io/api/core/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 )
 
@@ -25,6 +26,7 @@ import (
 type DevicesProvider interface {
 	GetDevices(podUID, containerName string) []*podresourcesapi.ContainerDevices
 	UpdateAllocatedDevices()
+	GetAllDevices() map[string]map[string]pluginapi.Device
 }
 
 // PodsProvider knows how to provide the pods admitted by the node
@@ -35,4 +37,5 @@ type PodsProvider interface {
 // CPUsProvider knows how to provide the cpus used by the given container
 type CPUsProvider interface {
 	GetCPUs(podUID, containerName string) []int64
+	GetAllCPUs() []int64
 }

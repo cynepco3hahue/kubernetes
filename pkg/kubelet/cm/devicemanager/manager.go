@@ -1060,6 +1060,21 @@ func (m *ManagerImpl) isDevicePluginResource(resource string) bool {
 	return false
 }
 
+// GetAllDevices returns information about all the devices known to the manager
+func (m *ManagerImpl) GetAllDevices() map[string]map[string]pluginapi.Device {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	resp := make(map[string]map[string]pluginapi.Device)
+	for resourceName, resourceDevs := range m.allDevices {
+		resp[resourceName] = make(map[string]pluginapi.Device)
+		for devID, dev := range resourceDevs {
+			resp[resourceName][devID] = dev
+		}
+	}
+	klog.V(4).Infof("known devices: %d", len(resp))
+	return resp
+}
+
 // GetDevices returns the devices used by the specified container
 func (m *ManagerImpl) GetDevices(podUID, containerName string) []*podresourcesapi.ContainerDevices {
 	return m.podDevices.getContainerDevices(podUID, containerName)

@@ -23,6 +23,7 @@ import (
 	// TODO: Migrate kubelet to either use its own internal objects or client library.
 	v1 "k8s.io/api/core/v1"
 	internalapi "k8s.io/cri-api/pkg/apis"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/pkg/kubelet/config"
@@ -118,6 +119,12 @@ type ContainerManager interface {
 
 	// UpdateAllocatedDevices frees any Devices that are bound to terminated pods.
 	UpdateAllocatedDevices()
+
+	// GetAllDevices returns information about all the devices known to the manager
+	GetAllDevices() map[string]map[string]pluginapi.Device
+
+	// GetAllCPUs returns the assignable (not allocated) CPUs
+	GetAllCPUs() []int64
 }
 
 type NodeConfig struct {
