@@ -18,6 +18,8 @@ package podresources
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"testing"
 
 	"k8s.io/api/core/v1"
@@ -276,9 +278,57 @@ func TestAllocatableResources(t *testing.T) {
 			if err != nil {
 				t.Errorf("want err = %v, got %q", nil, err)
 			}
-			if tc.expectedAllocatableResourcesResponse.String() != resp.String() {
+
+			if !equalAllocatableResourcesResponse(tc.expectedAllocatableResourcesResponse, resp) {
 				t.Errorf("want resp = %s, got %s", tc.expectedAllocatableResourcesResponse.String(), resp.String())
 			}
 		})
 	}
+}
+
+func equalAllocatableResourcesResponse(respA, respB *podresourcesapi.AllocatableResourcesResponse) bool {
+	if !equalInt64s(respA.CpuIds, respB.CpuIds) {
+		return false
+	}
+	devsA := makeDevTree(respA.Devices)
+	devsB := makeDevTree(respB.Devices)
+	return reflect.DeepEqual(devsA, devsB)
+}
+
+// group per resource, per numa ID, then list all the device IDs:
+// example:
+// resource1:
+//     0:
+//         devA, devB
+//     1:
+//         devC
+// resource2:
+//     0:
+//         devD, devE
+func makeDevTree(devs []*podresourcesapi.ContainerDevices) map[string]map[int64][]string {
+	resources := make(map[string]map[int64][]string)
+	for _, dev := range devs {
+		devsPerNuma, ok := resources[dev.ResourceName]
+		if !ok {
+			devsPerNuma = make(map[int64][]string)
+		}
+		// this is not correct in general, but it is good enough for our testcases
+		numaNode := dev.Topology.Nodes[0].ID
+		devs := append(devsPerNuma[numaNode], dev.DeviceIds...)
+		devsPerNuma[numaNode] = devs
+
+		resources[dev.ResourceName] = devsPerNuma
+	}
+	return resources
+}
+
+func equalInt64s(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aCopy := append([]int64{}, a...)
+	sort.Slice(aCopy, func(i, j int) bool { return aCopy[i] < aCopy[j] })
+	bCopy := append([]int64{}, b...)
+	sort.Slice(bCopy, func(i, j int) bool { return bCopy[i] < bCopy[j] })
+	return reflect.DeepEqual(aCopy, bCopy)
 }
