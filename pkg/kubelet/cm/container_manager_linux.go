@@ -143,6 +143,8 @@ type containerManagerImpl struct {
 	memoryManager memorymanager.Manager
 	// Interface for Topology resource co-ordination
 	topologyManager topologymanager.Manager
+	// System critical pods
+	systemCriticalPods map[string]*v1.Pod
 }
 
 type features struct {
@@ -360,6 +362,8 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		cm.topologyManager.AddHintProvider(cm.memoryManager)
 	}
 
+	cm.systemCriticalPods = map[string]*v1.Pod{}
+
 	return cm, nil
 }
 
@@ -383,7 +387,8 @@ func (cm *containerManagerImpl) NewPodContainerManager() PodContainerManager {
 }
 
 func (cm *containerManagerImpl) InternalContainerLifecycle() InternalContainerLifecycle {
-	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.topologyManager}
+	cm.systemCriticalPods = map[string]*v1.Pod{}
+	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.topologyManager, cm.systemCriticalPods}
 }
 
 // Create a cgroup container manager.
