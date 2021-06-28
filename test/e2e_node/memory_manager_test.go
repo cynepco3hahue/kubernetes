@@ -312,6 +312,8 @@ var _ = SIGDescribe("Memory Manager [Serial] [Feature:MemoryManager][NodeAlphaFe
 	}
 
 	ginkgo.BeforeEach(func() {
+		framework.TestContext.NodeTestContextType.RestartKubelet = false
+
 		if isMultiNUMASupported == nil {
 			isMultiNUMASupported = pointer.BoolPtr(isMultiNUMA())
 		}
@@ -341,16 +343,8 @@ var _ = SIGDescribe("Memory Manager [Serial] [Feature:MemoryManager][NodeAlphaFe
 			}, 30*time.Second, framework.Poll).Should(gomega.BeNil())
 
 			ginkgo.By("restarting kubelet to pick up pre-allocated hugepages")
-			// stop the kubelet and wait until the server will restart it automatically
-			stopKubelet()
-			// wait until the kubelet health check will fail
-			gomega.Eventually(func() bool {
-				return kubeletHealthCheck(kubeletHealthCheckURL)
-			}, time.Minute, time.Second).Should(gomega.BeFalse())
-			// wait until the kubelet health check will pass
-			gomega.Eventually(func() bool {
-				return kubeletHealthCheck(kubeletHealthCheckURL)
-			}, 2*time.Minute, 10*time.Second).Should(gomega.BeTrue())
+			// restart the kubelet and wait until the server will restart it automatically
+			restartKubelet()
 
 			ginkgo.By("Waiting for hugepages resource to become available on the local node")
 			gomega.Eventually(func() error {
@@ -411,14 +405,10 @@ var _ = SIGDescribe("Memory Manager [Serial] [Feature:MemoryManager][NodeAlphaFe
 
 		// update the kubelet config with old values
 		updateKubeletConfig(f, oldCfg)
+	})
 
-		// wait until the kubelet health check will pass and will continue to pass for specified period of time
-		gomega.Eventually(func() bool {
-			return kubeletHealthCheck(kubeletHealthCheckURL)
-		}, time.Minute, 10*time.Second).Should(gomega.BeTrue())
-		gomega.Consistently(func() bool {
-			return kubeletHealthCheck(kubeletHealthCheckURL)
-		}, time.Minute, 10*time.Second).Should(gomega.BeTrue())
+	ginkgo.AfterEach(func() {
+		framework.TestContext.NodeTestContextType.RestartKubelet = true
 	})
 
 	ginkgo.Context("with static policy", func() {
